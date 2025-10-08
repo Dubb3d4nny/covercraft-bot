@@ -1,4 +1,3 @@
-
 const db = require('../db/firebase');
 const promptTemplate = require('../utils/promptTemplate');
 const flutterwave = require('../services/flutterwave');
