@@ -1,5 +1,6 @@
 const db = require('../db/firebase');
 const flutterwave = require('../services/flutterwave');
+const promptTemplate = require('../utils/promptTemplate');
 
 exports.handler = async (ctx) => {
   const chatId = ctx.from.id.toString();
@@ -21,16 +22,23 @@ exports.handler = async (ctx) => {
     );
   }
 
-  // Placeholder flow for asking book details
+  // Ask for book title
   ctx.reply('Please reply with your book title.');
-  ctx.telegram.once('text', async (msgCtx) => {
-    const title = msgCtx.message.text;
-    ctx.reply(`Great! Generating your cover for "${title}"...`);
 
-    // Here you would call AI image generation + overlay logic
-    // For now, just simulate success
+  const listener = async (msgCtx) => {
+    const title = msgCtx.message.text;
+    const prompt = promptTemplate({ title, author: ctx.from.first_name, genre: 'Unknown', style: 'Minimalist' });
+
+    // Placeholder: generate image using a placeholder URL
+    const imageUrl = `https://via.placeholder.com/512x512.png?text=${encodeURIComponent(title)}`;
+
     await db.incrementCredits(chatId);
 
-    ctx.reply(`✅ Cover for "${title}" generated! (placeholder image)`);
-  });
+    ctx.replyWithPhoto({ url: imageUrl }, { caption: `✅ Cover for "${title}" generated!\nUsed: ${user.creditsUsed + 1}/10 free` });
+
+    // Remove this listener after use to avoid multiple triggers
+    ctx.telegram.off('text', listener);
+  };
+
+  ctx.telegram.on('text', listener);
 };
