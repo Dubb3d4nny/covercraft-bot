@@ -7,10 +7,13 @@ const platforms = {
   letterlux: { width: 1600, height: 2560 }
 };
 
-// Helper: generate dynamic placeholder URL
+// Helper: generate dynamic placeholder URL using .env base
 function getPlaceholderUrl(title, platform='webnovel') {
   const { width, height } = platforms[platform];
-  return `https://placehold.co/${width}x${height}.png?text=${encodeURIComponent(title)}&bg=cccccc&fg=000000`;
+  const baseUrl = process.env.PLACEHOLDER_URL || 'https://placehold.co';
+  const bgColor = 'cccccc'; // light gray background
+  const fgColor = '000000'; // black text
+  return `${baseUrl}/${width}x${height}/${bgColor}/${fgColor}.png?text=${encodeURIComponent(title)}`;
 }
 
 exports.handler = async (ctx) => {
