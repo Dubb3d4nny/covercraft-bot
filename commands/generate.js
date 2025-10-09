@@ -30,8 +30,8 @@ exports.handler = async (ctx) => {
       );
     }
 
-    // Step 1: Ask user to choose platform
-    await ctx.reply(
+    // Step 1: Ask for platform
+    const platformMsg = await ctx.reply(
       '📘 Which platform are you uploading your cover to?',
       {
         reply_markup: {
@@ -43,19 +43,20 @@ exports.handler = async (ctx) => {
       }
     );
 
-    // Wait for callback query
-    const bot = ctx.telegram;
-    const handleCallback = async (callbackQuery) => {
+    // Step 2: Wait for user platform selection
+    ctx.telegram.on('callback_query', async (callbackQuery) => {
+      if (!callbackQuery.data.startsWith('platform_')) return;
+
       const platformChoice = callbackQuery.data.replace('platform_', '');
-      if (!['webnovel', 'letterlux'].includes(platformChoice)) return;
+      await ctx.telegram.answerCallbackQuery(callbackQuery.id);
 
-      await bot.answerCallbackQuery(callbackQuery.id);
-      await ctx.reply('🖊️ Great! Now send me the *title* of your book.', { parse_mode: 'Markdown' });
+      // Confirm selection
+      await ctx.telegram.sendMessage(chatId, `✅ You chose *${platformChoice}*! Now send me your book title:`, { parse_mode: 'Markdown' });
 
-      // Wait for title input
-      const handleMessage = async (msgCtx) => {
+      // Step 3: Wait for book title message
+      ctx.telegram.on('message', async (msgCtx) => {
         const title = msgCtx.text;
-        if (!title || title.startsWith('/')) return; // ignore commands
+        if (!title || title.startsWith('/')) return;
 
         try {
           // Build prompt (for future AI integration)
@@ -66,36 +67,26 @@ exports.handler = async (ctx) => {
             style: 'Minimalist'
           });
 
-          // Generate placeholder cover
+          // Generate placeholder
           const imageUrl = getPlaceholderUrl(title, platformChoice);
 
           // Increment credits
           await db.incrementCredits(chatId);
 
-          // Send image + download button
-          await ctx.replyWithPhoto({ url: imageUrl }, {
+          // Send image with button
+          await ctx.telegram.sendPhoto(chatId, imageUrl, {
             caption: `✅ Cover for *"${title}"* generated!\nPlatform: *${platformChoice}*\nUsed: ${user.creditsUsed + 1}/10 free`,
             parse_mode: 'Markdown',
             reply_markup: {
-              inline_keyboard: [
-                [{ text: '⬇️ Download Cover', url: imageUrl }]
-              ]
+              inline_keyboard: [[{ text: '⬇️ Download Cover', url: imageUrl }]]
             }
           });
-
-          // Cleanup listeners
-          ctx.bot.off('message', handleMessage);
         } catch (err) {
           console.error('Error handling title input:', err);
-          await ctx.reply('⚠️ Something went wrong while generating your cover.');
+          await ctx.telegram.sendMessage(chatId, '⚠️ Something went wrong while generating your cover.');
         }
-      };
-
-      ctx.bot.on('message', handleMessage);
-      ctx.bot.off('callback_query', handleCallback);
-    };
-
-    ctx.bot.on('callback_query', handleCallback);
+      });
+    });
   } catch (err) {
     console.error('Error in generate.js handler:', err);
     await ctx.reply('⚠️ Something went wrong. Please try again.');
