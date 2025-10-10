@@ -1,6 +1,6 @@
-// index.js — CoverCraft Webhook + Heartbeat Edition
+// index.js — CoverCraft Webhook + Heartbeat Edition (Final)
 require('dotenv').config();
-const { Telegraf } = require('telegraf');
+const { Telegraf, session } = require('telegraf');
 const express = require('express');
 const generateCmd = require('./commands/generate');
 
@@ -21,13 +21,50 @@ const bot = new Telegraf(TOKEN);
 const app = express();
 let startTime = Date.now();
 
-// --- BOT COMMANDS ---
+// --- ENABLE SESSION ---
+bot.use(session());
+
+// --- START COMMAND ---
 bot.start((ctx) =>
   ctx.reply(
-    `👋 Welcome to CoverCraft!\nYou get 10 free covers.\nType /generate to create your first book cover.`
+    `👋 Welcome to *CoverCraft!*\nYou get 10 free covers.\nType /generate to create your first book cover.`,
+    { parse_mode: 'Markdown' }
   )
 );
+
+// --- GENERATE COMMAND ---
 bot.command('generate', generateCmd.handler);
+
+// --- CALLBACK HANDLER (Platform Selection) ---
+bot.on('callback_query', async (ctx) => {
+  try {
+    const data = ctx.callbackQuery.data;
+
+    // ✅ Handle platform choice
+    if (data.startsWith('generate:')) {
+      await generateCmd.handlePlatform(ctx);
+    }
+
+    // 🚫 Cancel current session
+    else if (data === 'cancel') {
+      ctx.session = {};
+      await ctx.answerCbQuery('❌ Cancelled.');
+      await ctx.reply('🚫 Request cancelled. Type /generate to start again.');
+    }
+  } catch (err) {
+    console.error('Error in callback handler:', err);
+    await ctx.reply('⚠️ Something went wrong with your selection.');
+  }
+});
+
+// --- TEXT HANDLER (Book Title Input) ---
+bot.on('text', generateCmd.handleTitle);
+
+// --- CANCEL COMMAND ---
+bot.command('cancel', (ctx) => {
+  ctx.session = {};
+  ctx.reply('🚫 Current process cancelled. Type /generate to start again.');
+});
 
 // --- HEARTBEAT + HEALTH ROUTES (for UptimeRobot) ---
 app.get('/', (req, res) => {
