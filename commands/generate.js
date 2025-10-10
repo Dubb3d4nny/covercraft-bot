@@ -1,4 +1,4 @@
-// commands/generate.js
+// commands/generate.js — CoverCraft Stable Handler
 const db = require('../db/firebase');
 const promptTemplate = require('../utils/promptTemplate');
 const flutterwave = require('../services/flutterwave');
@@ -8,12 +8,14 @@ const platforms = {
   letterlux: { width: 1600, height: 2560 },
 };
 
-// ✅ Updated: more reliable image generator + title length safety
+// ✅ Resilient image generator (auto fallback)
 function getPlaceholderUrl(title, platform = 'webnovel') {
   const { width, height } = platforms[platform];
-  const baseUrl = process.env.PLACEHOLDER_URL || 'https://fakeimg.pl';
-  const safeTitle = encodeURIComponent(title.slice(0, 50)); // avoid emoji & long title issues
-  return `${baseUrl}/${width}x${height}/cccccc,128/000000,255?text=${safeTitle}`;
+  const baseUrl =
+    process.env.PLACEHOLDER_URL ||
+    'https://placehold.co'; // More stable than fakeimg.pl
+  const safeTitle = encodeURIComponent(title.slice(0, 50));
+  return `${baseUrl}/${width}x${height}/cccccc/000000.png?text=${safeTitle}`;
 }
 
 // --- EXPORT HANDLER ---
@@ -29,7 +31,8 @@ exports.handler = async (ctx) => {
         ctx.from.first_name,
         ctx.from.username
       );
-      return ctx.reply(
+
+      await ctx.reply(
         `💳 You’ve used your 10 free covers. Pay $1 to generate more.`,
         {
           reply_markup: {
@@ -37,6 +40,7 @@ exports.handler = async (ctx) => {
           },
         }
       );
+      return;
     }
 
     // Step 1: Ask platform
@@ -45,12 +49,15 @@ exports.handler = async (ctx) => {
         inline_keyboard: [
           [{ text: '🌐 Webnovel', callback_data: 'generate:webnovel' }],
           [{ text: '✨ Letterlux', callback_data: 'generate:letterlux' }],
+          [{ text: '❌ Cancel', callback_data: 'cancel' }],
         ],
       },
     });
   } catch (err) {
     console.error('Error in generate.js handler:', err);
-    await ctx.reply('⚠️ Something went wrong. Please try again.');
+    try {
+      await ctx.reply('⚠️ Something went wrong. Please try again.');
+    } catch (_) {}
   }
 };
 
@@ -61,17 +68,18 @@ exports.handlePlatform = async (ctx) => {
     const platformChoice = ctx.callbackQuery.data.split(':')[1];
     await ctx.answerCbQuery();
 
+    ctx.session = ctx.session || {};
+    ctx.session.awaitingTitle = platformChoice;
+
     await ctx.reply(
       `✅ You chose *${platformChoice}*! Now send me your book title:`,
       { parse_mode: 'Markdown' }
     );
-
-    // Store platform in user session
-    ctx.session = ctx.session || {};
-    ctx.session.awaitingTitle = platformChoice;
   } catch (err) {
     console.error('Error in platform handler:', err);
-    await ctx.reply('⚠️ Something went wrong while selecting platform.');
+    try {
+      await ctx.reply('⚠️ Something went wrong while selecting platform.');
+    } catch (_) {}
   }
 };
 
@@ -82,29 +90,48 @@ exports.handleTitle = async (ctx) => {
 
     const chatId = ctx.from.id.toString();
     const platformChoice = ctx.session.awaitingTitle;
-    const title = ctx.message.text;
+    const title = ctx.message.text?.trim();
 
     if (!title || title.startsWith('/')) return;
 
-    const user = await db.getUser(chatId);
+    // Instant feedback
+    await ctx.reply('🎨 Generating your cover... Please wait.');
 
+    const user = await db.getUser(chatId);
     const prompt = promptTemplate({
       title,
-      author: ctx.from.first_name,
+      author: ctx.from.first_name || 'Unknown',
       genre: 'Unknown',
       style: 'Minimalist',
     });
 
-    const imageUrl = getPlaceholderUrl(title, platformChoice);
+    let imageUrl = getPlaceholderUrl(title, platformChoice);
+
+    // 🔁 Retry once if image generation fails
+    const tryImage = async (url) => {
+      try {
+        const test = await fetch(url, { method: 'HEAD' });
+        if (!test.ok) throw new Error('Bad image URL');
+        return url;
+      } catch {
+        console.warn('⚠️ Image fetch failed, retrying with backup...');
+        return getPlaceholderUrl(title, 'webnovel');
+      }
+    };
+    imageUrl = await tryImage(imageUrl);
+
     await db.incrementCredits(chatId);
 
     await ctx.replyWithPhoto(
       { url: imageUrl },
       {
-        caption: `✅ Cover for *"${title}"* generated!\nPlatform: *${platformChoice}*\nUsed: ${user.creditsUsed + 1}/10 free`,
+        caption: `✅ *"${title}"* cover generated!\n📖 Platform: *${platformChoice}*\n🎟️ Used: ${user.creditsUsed + 1}/10 free`,
         parse_mode: 'Markdown',
         reply_markup: {
-          inline_keyboard: [[{ text: '⬇️ Download Cover', url: imageUrl }]],
+          inline_keyboard: [
+            [{ text: '⬇️ Download Cover', url: imageUrl }],
+            [{ text: '✨ Generate Another', callback_data: 'generate' }],
+          ],
         },
       }
     );
@@ -113,6 +140,8 @@ exports.handleTitle = async (ctx) => {
     ctx.session.awaitingTitle = null;
   } catch (err) {
     console.error('Error in title handler:', err);
-    await ctx.reply('⚠️ Something went wrong while generating your cover.');
+    try {
+      await ctx.reply('⚠️ Something went wrong while generating your cover.');
+    } catch (_) {}
   }
 };
