@@ -1,3 +1,4 @@
+// commands/generate.js
 const db = require('../db/firebase');
 const promptTemplate = require('../utils/promptTemplate');
 const flutterwave = require('../services/flutterwave');
@@ -7,15 +8,12 @@ const platforms = {
   letterlux: { width: 1600, height: 2560 },
 };
 
-// Generate placeholder image link
+// ✅ Updated: more reliable image generator + title length safety
 function getPlaceholderUrl(title, platform = 'webnovel') {
   const { width, height } = platforms[platform];
-  const baseUrl = process.env.PLACEHOLDER_URL || 'https://placehold.co';
-  const bgColor = 'cccccc';
-  const fgColor = '000000';
-  return `${baseUrl}/${width}x${height}/${bgColor}/${fgColor}.png?text=${encodeURIComponent(
-    title
-  )}`;
+  const baseUrl = process.env.PLACEHOLDER_URL || 'https://fakeimg.pl';
+  const safeTitle = encodeURIComponent(title.slice(0, 50)); // avoid emoji & long title issues
+  return `${baseUrl}/${width}x${height}/cccccc,128/000000,255?text=${safeTitle}`;
 }
 
 // --- EXPORT HANDLER ---
@@ -68,7 +66,7 @@ exports.handlePlatform = async (ctx) => {
       { parse_mode: 'Markdown' }
     );
 
-    // Next message from this user will be treated as book title
+    // Store platform in user session
     ctx.session = ctx.session || {};
     ctx.session.awaitingTitle = platformChoice;
   } catch (err) {
@@ -100,13 +98,16 @@ exports.handleTitle = async (ctx) => {
     const imageUrl = getPlaceholderUrl(title, platformChoice);
     await db.incrementCredits(chatId);
 
-    await ctx.replyWithPhoto({ url: imageUrl }, {
-      caption: `✅ Cover for *"${title}"* generated!\nPlatform: *${platformChoice}*\nUsed: ${user.creditsUsed + 1}/10 free`,
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [[{ text: '⬇️ Download Cover', url: imageUrl }]],
-      },
-    });
+    await ctx.replyWithPhoto(
+      { url: imageUrl },
+      {
+        caption: `✅ Cover for *"${title}"* generated!\nPlatform: *${platformChoice}*\nUsed: ${user.creditsUsed + 1}/10 free`,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[{ text: '⬇️ Download Cover', url: imageUrl }]],
+        },
+      }
+    );
 
     // Reset session
     ctx.session.awaitingTitle = null;
