@@ -1,4 +1,4 @@
-// index.js — CoverCraft Webhook + Auto-Recovery Edition
+// index.js — CoverCraft v1.2 (Webhook + Auto-Recovery + Gemini Ready)
 require('dotenv').config();
 const { Telegraf, session } = require('telegraf');
 const express = require('express');
@@ -21,15 +21,15 @@ const bot = new Telegraf(TOKEN);
 const app = express();
 let startTime = Date.now();
 
-// --- ENABLE SESSION + GLOBAL SAFE MIDDLEWARE ---
+// --- SESSION + GLOBAL MIDDLEWARE ---
 bot.use(session());
 bot.use(async (ctx, next) => {
   try {
     await next();
   } catch (err) {
-    console.error('💥 Bot crashed in middleware:', err);
+    console.error('💥 Middleware crash:', err);
     try {
-      await ctx.reply('⚠️ Oops! Something went wrong, please try again.');
+      await ctx.reply('⚠️ Oops! Something went wrong. Please try again.');
     } catch (_) {}
   }
 });
@@ -42,7 +42,7 @@ bot.start(async (ctx) => {
       { parse_mode: 'Markdown' }
     );
   } catch (err) {
-    console.error('Error in /start command:', err);
+    console.error('Error in /start:', err);
   }
 });
 
@@ -52,16 +52,17 @@ bot.command('generate', async (ctx) => {
     await ctx.reply('⏳ Preparing to generate your cover...');
     await generateCmd.handler(ctx);
   } catch (err) {
-    console.error('Error in /generate command:', err);
-    await ctx.reply('⚠️ Something went wrong. Please try again.');
+    console.error('Error in /generate:', err);
+    try {
+      await ctx.reply('⚠️ Something went wrong. Please try again.');
+    } catch (_) {}
   }
 });
 
-// --- CALLBACK HANDLER (Platform Selection) ---
+// --- CALLBACK HANDLER (Platform Selection / Cancel) ---
 bot.on('callback_query', async (ctx) => {
   try {
     const data = ctx.callbackQuery.data;
-
     if (data.startsWith('generate:')) {
       await ctx.answerCbQuery('✅ Platform selected!');
       await generateCmd.handlePlatform(ctx);
@@ -69,16 +70,20 @@ bot.on('callback_query', async (ctx) => {
       ctx.session = {};
       await ctx.answerCbQuery('❌ Cancelled.');
       await ctx.reply('🚫 Request cancelled. Type /generate to start again.');
+    } else if (data === 'generate') {
+      // Allow user to restart generation immediately
+      await ctx.answerCbQuery();
+      await generateCmd.handler(ctx);
     }
   } catch (err) {
-    console.error('Error in callback handler:', err);
+    console.error('Error in callback_query:', err);
     try {
-      await ctx.reply('⚠️ Something went wrong with your selection.');
+      await ctx.reply('⚠️ Something went wrong while handling your selection.');
     } catch (_) {}
   }
 });
 
-// --- TEXT HANDLER (Book Title Input) ---
+// --- TEXT HANDLER (Title Input) ---
 bot.on('text', async (ctx) => {
   try {
     await generateCmd.handleTitle(ctx);
@@ -91,9 +96,11 @@ bot.on('text', async (ctx) => {
 });
 
 // --- CANCEL COMMAND ---
-bot.command('cancel', (ctx) => {
+bot.command('cancel', async (ctx) => {
   ctx.session = {};
-  ctx.reply('🚫 Current process cancelled. Type /generate to start again.');
+  try {
+    await ctx.reply('🚫 Current process cancelled. Type /generate to start again.');
+  } catch (_) {}
 });
 
 // --- HEARTBEAT ROUTES (for UptimeRobot) ---
@@ -101,30 +108,28 @@ app.get('/', (req, res) => {
   const uptime = ((Date.now() - startTime) / 1000).toFixed(0);
   res.send(`✅ CoverCraft Bot is alive and running! Uptime: ${uptime}s`);
 });
-
 app.get('/heartbeat', (req, res) => {
   const uptime = ((Date.now() - startTime) / 1000).toFixed(0);
   res.send(`💓 Heartbeat OK — uptime ${uptime}s`);
 });
 
-// --- TELEGRAM WEBHOOK SETUP ---
+// --- TELEGRAM WEBHOOK CONFIG ---
 const webhookPath = `/webhook/${TOKEN}`;
 const webhookUrl = `${BASE_URL}${webhookPath}`;
-
 app.use(bot.webhookCallback(webhookPath));
 
-// --- START SERVER WITH AUTO-RECOVERY ---
+// --- SERVER LAUNCH + AUTO WEBHOOK RECONNECT ---
 async function startServer() {
   app.listen(PORT, async () => {
-    console.log(`🌐 Express server running on port ${PORT}`);
-
+    console.log(`🌐 Server running on port ${PORT}`);
     try {
       await bot.telegram.setWebhook(webhookUrl);
       console.log(`✅ Webhook successfully set: ${webhookUrl}`);
-      console.log('🤖 CoverCraft Bot is live in webhook mode!');
+      console.log('🤖 CoverCraft Bot is live and responding to Telegram!');
     } catch (err) {
       console.error('⚠️ Failed to set webhook:', err.message);
-      setTimeout(startServer, 5000); // retry in 5s if webhook setup fails
+      console.log('🔁 Retrying in 5 seconds...');
+      setTimeout(startServer, 5000);
     }
   });
 }
@@ -142,11 +147,11 @@ process.once('SIGTERM', async () => {
   process.exit(0);
 });
 
-// --- UNHANDLED ERRORS AUTO-RECOVER ---
-process.on('unhandledRejection', (reason, promise) => {
+// --- AUTO-RECOVERY (Prevents Bot from Crashing) ---
+process.on('unhandledRejection', (reason) => {
   console.error('⚠️ Unhandled Rejection:', reason);
 });
 process.on('uncaughtException', (err) => {
   console.error('💥 Uncaught Exception:', err);
-  // Don’t exit — stay alive
+  console.log('🧩 Recovering bot process without shutdown...');
 });
