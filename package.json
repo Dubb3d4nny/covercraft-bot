@@ -1,17 +1,23 @@
 {
   "name": "covercraft-bot",
-  "version": "0.1.0",
-  "description": "Telegram bot to generate AI book covers with 10 free covers and pay-per-cover flow (free MVP version)",
+  "version": "0.2.0",
+  "description": "Telegram bot that generates AI book covers using Google Gemini and supports 10 free covers with pay-per-cover options.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
-    "telegraf": "^4.12.0",
+    "telegraf": "^4.16.2",
     "node-fetch": "^2.6.7",
-    "sharp": "^0.31.3",
-    "dotenv": "^16.0.3",
-    "express": "^4.18.2"
+    "axios": "^1.6.8",
+    "form-data": "^4.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "sharp": "^0.33.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
   },
   "engines": {
     "node": ">=18"
